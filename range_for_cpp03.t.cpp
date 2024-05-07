@@ -9,6 +9,34 @@
 #include <iostream>
 #include <utility>
 
+class iota
+{
+  int m_start, m_end, m_stride;
+
+public:
+  explicit iota(int e) : m_start(0), m_end(e), m_stride(1) { }
+  iota(int s, int e, int d = 1) : m_start(s), m_end(e), m_stride(d) { }
+
+  class iterator {
+    int d_current;
+  public:
+    explicit iterator(int i) : d_current(i) { }
+    int operator*() const { return d_current; }
+    iterator& operator++() { ++d_current; return *this; }
+    iterator& operator--() { --d_current; return *this; }
+    friend bool operator==(iterator a, iterator b)
+      { return a.d_current == b.d_current; }
+    friend bool operator!=(iterator a, iterator b)
+      { return a.d_current != b.d_current; }
+  };
+
+  iterator begin() const { return iterator(m_start); }
+  iterator end()   const { return iterator(m_end); }
+};
+
+template <>
+struct copyable_range<iota> : true_type { };
+
 int main()
 {
   std::vector<int> v;
@@ -62,7 +90,11 @@ int main()
     std::cout << '(' << p.first << ", " << (*p.second-1) << "), ";
   std::cout << std::endl;
 
-  // TBD: Eventually test proxy iterators (but some changes needed first)
+  // Test proxy iterators
+  RANGE_FOR(int x, iota(5)) {
+    std::cout << x << ' ';
+  }
+  std::cout << std::endl;
 }
 
 // Local Variables:

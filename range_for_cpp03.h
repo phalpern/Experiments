@@ -17,7 +17,7 @@
 //  C-style arrays
 //  const ranges
 //  range-like classes that lack `iterator` types
-//  TBD: proxy iterators
+//  proxy iterators
 //
 // Limitations:
 //  Range must be an lvalue (but can be const)
@@ -26,19 +26,24 @@
 //  No support for C++20 lifetime extension of subparts of range expression
 //  No support for C++23 initialization clause
 
+struct false_type { enum { value = false }; };
+struct true_type  { enum { value = true }; };
+template <bool Cond, class T = void> struct enable_if;
+template <class T> struct enable_if<true, T> { typedef T type; };
+
+template <class>
+struct copyable_range : false_type { };
+
 template <class T> struct Decl;
 
-// TBD: Make `Decl` return `T` here
 template <class T>
 struct Decl<void (&)(T)> { typedef const T type; };
 
-// TBD: Make `Decl` return `T&` here
 template <class T>
-struct Decl<void (&)(T&)> { typedef T type; };
+struct Decl<void (&)(T&)> { typedef T& type; };
 
-// TBD: Make `Decl` return `const T&` here
 template <class T>
-struct Decl<void (&)(const T&)> { typedef const T type; };
+struct Decl<void (&)(const T&)> { typedef const T& type; };
 
 template <class T> struct __rm_const          { typedef T type; };
 template <class T> struct __rm_const<const T> { typedef T type; };
@@ -46,19 +51,15 @@ template <class T> struct __rm_const<const T> { typedef T type; };
 template <class T> T& __unconst(T& v)       { return v; }
 template <class T> T& __unconst(const T& v) { return const_cast<T&>(v); }
 
-// TBD: Change `T&` to `DerefT` and allow it to either an lvalue ref or an
-// rvalue non-ref.
 template <class T>
 class _VirtIterBase
 {
 public:
-  virtual T& operator*() const = 0;
+  virtual T operator*() const = 0;
   virtual void operator++() const = 0;
   virtual bool notAtEnd() const = 0;
 };
 
-// TBD: Change `T&` to `DerefT` and allow it to either an lvalue ref or an
-// rvalue non-ref.
 template <class T, class Range>
 class _VirtIter : public _VirtIterBase<T>
 {
@@ -68,17 +69,17 @@ class _VirtIter : public _VirtIterBase<T>
 public:
   _VirtIter(Range& r) : m_range(r), m_current(__unconst(m_range).begin()) { }
 
-  T& operator*() const { return *m_current; }
+  T operator*() const { return *m_current; }
   void operator++() const { ++m_current; }
   bool notAtEnd() const { return m_current != m_range.end(); }
 };
 
 template <class T, class Range>
 class _VirtIter<T, const Range> :
-  public _VirtIter<const T, typename __rm_const<Range>::type>
+  public _VirtIter<T, typename __rm_const<Range>::type>
 {
   typedef typename __rm_const<Range>::type  NonconstRange;
-  typedef _VirtIter<const T, NonconstRange> Base;
+  typedef _VirtIter<T, NonconstRange> Base;
 
 public:
   _VirtIter(Range& r) : Base(__unconst(r)) { }
@@ -87,32 +88,54 @@ public:
 template <class T, class A, std::size_t SZ >
 class _VirtIter<T, A[SZ]> : public _VirtIterBase<T>
 {
-  mutable T *m_current;
-  T         *m_end;
+  mutable A *m_current;
+  A         *m_end;
 
 public:
-  _VirtIter(T (&r)[SZ]) : m_current(r), m_end(&r[SZ]) { }
+  _VirtIter(A (&r)[SZ]) : m_current(r), m_end(&r[SZ]) { }
 
-  T& operator*() const { return *m_current; }
+  T operator*() const { return *m_current; }
   void operator++() const { ++m_current; }
   bool notAtEnd() const { return m_current != m_end; }
 };
 
 template <class T, class A, std::size_t SZ >
 class _VirtIter<T, const A[SZ]> :
-  public _VirtIter<const T, typename __rm_const<T>::type[SZ]>
+  public _VirtIter<T, typename __rm_const<A>::type[SZ]>
 {
-  typedef typename __rm_const<T>::type      NonconstT;
-  typedef _VirtIter<const T, NonconstT[SZ]> Base;
+  typedef typename __rm_const<A>::type NonconstA;
+  typedef _VirtIter<T, NonconstA[SZ]>  Base;
 
 public:
-  _VirtIter(const T (&a)[SZ]) : Base(__unconst(a)) { }
+  _VirtIter(A (&a)[SZ]) : Base(__unconst(a)) { }
+};
+
+template <class T, class Range>
+class _VirtIterCp : public _VirtIterBase<T>
+{
+  Range                            m_range;
+  mutable typename Range::iterator m_current;
+
+public:
+  _VirtIterCp(const Range& r)
+    : m_range(r), m_current(__unconst(m_range).begin()) { }
+
+  T operator*() const { return *m_current; }
+  void operator++() const { ++m_current; }
+  bool notAtEnd() const { return m_current != m_range.end(); }
 };
 
 template <class T, class Range>
 _VirtIter<T, Range> mkVirt(Range& r)
 {
   return _VirtIter<T, Range>(__unconst(r));
+}
+
+template <class T, class Range>
+typename enable_if<copyable_range<Range>::value, _VirtIterCp<T, Range> >::type
+mkVirt(const Range& r)
+{
+  return _VirtIterCp<T, Range>(r);
 }
 
 #define RANGE_FOR(RangeDecl, ...)                                            \
