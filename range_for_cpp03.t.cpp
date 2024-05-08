@@ -15,23 +15,23 @@ class iota
 
 public:
   explicit iota(int e) : m_start(0), m_end(e), m_stride(1) { }
-  iota(int s, int e, int d = 1) : m_start(s), m_end(e), m_stride(d) { }
+  iota(int s, int n, int d = 1) : m_start(s), m_end(s + n * d), m_stride(d) { }
 
   class iterator {
-    int d_current;
+    int m_current, m_stride;
   public:
-    explicit iterator(int i) : d_current(i) { }
-    int operator*() const { return d_current; }
-    iterator& operator++() { ++d_current; return *this; }
-    iterator& operator--() { --d_current; return *this; }
-    friend bool operator==(iterator a, iterator b)
-      { return a.d_current == b.d_current; }
-    friend bool operator!=(iterator a, iterator b)
-      { return a.d_current != b.d_current; }
+    explicit iterator(int i, int d) : m_current(i), m_stride(d) { }
+    int operator*() const { return m_current; }
+    iterator& operator++() { m_current += m_stride; return *this; }
+    iterator& operator--() { m_current -= m_stride; return *this; }
+    friend bool operator==(iterator a, int b)
+      { return a.m_current == b; }
+    friend bool operator!=(iterator a, int b)
+      { return a.m_current != b; }
   };
 
-  iterator begin() const { return iterator(m_start); }
-  iterator end()   const { return iterator(m_end); }
+  iterator begin() const { return iterator(m_start, m_stride); }
+  int      end()   const { return m_end; }
 };
 
 template <>
@@ -90,10 +90,12 @@ int main()
     std::cout << '(' << p.first << ", " << (*p.second-1) << "), ";
   std::cout << std::endl;
 
-  // Test proxy iterators
-  RANGE_FOR(int x, iota(5)) {
+  // Test proxy iterators and sentinels
+  RANGE_FOR(int x, iota(5))
     std::cout << x << ' ';
-  }
+  std::cout << std::endl;
+  RANGE_FOR(int x, iota(5, 5, -1))
+    std::cout << x << ' ';
   std::cout << std::endl;
 }
 
