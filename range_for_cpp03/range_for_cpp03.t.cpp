@@ -11,27 +11,27 @@
 
 class iota
 {
-  int m_start, m_end, m_stride;
+  int m_start, m_num, m_stride;
 
 public:
-  explicit iota(int e) : m_start(0), m_end(e), m_stride(1) { }
-  iota(int s, int n, int d = 1) : m_start(s), m_end(s + n * d), m_stride(d) { }
+  explicit iota(int e) : m_start(0), m_num(e), m_stride(1) { }
+  iota(int s, int n, int d = 1) : m_start(s), m_num(n), m_stride(d) { }
+
+  enum sentinal { };
 
   class iterator {
-    int m_current, m_stride;
+    int m_current, m_num, m_stride;
   public:
-    explicit iterator(int i, int d) : m_current(i), m_stride(d) { }
+    explicit iterator(int i, int n, int d)
+      : m_current(i), m_num(n), m_stride(d) { }
     int operator*() const { return m_current; }
-    iterator& operator++() { m_current += m_stride; return *this; }
-    iterator& operator--() { m_current -= m_stride; return *this; }
-    friend bool operator==(iterator a, int b)
-      { return a.m_current == b; }
-    friend bool operator!=(iterator a, int b)
-      { return a.m_current != b; }
+    iterator& operator++() { m_current += m_stride; --m_num; return *this; }
+    friend bool operator==(iterator a, sentinal b) { return 0 == a.m_num; }
+    friend bool operator!=(iterator a, sentinal b) { return 0 != a.m_num; }
   };
 
-  iterator begin() const { return iterator(m_start, m_stride); }
-  int      end()   const { return m_end; }
+  iterator begin() const { return iterator(m_start, m_num, m_stride); }
+  sentinal end()   const { return sentinal(); }
 };
 
 template <>
@@ -95,6 +95,9 @@ int main()
     std::cout << x << ' ';
   std::cout << std::endl;
   RANGE_FOR(int x, iota(5, 5, -1))
+    std::cout << x << ' ';
+  std::cout << std::endl;
+  RANGE_FOR(int x, iota(9, 5, 0))
     std::cout << x << ' ';
   std::cout << std::endl;
 }
