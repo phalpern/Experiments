@@ -17,6 +17,6 @@ Contents
 ========
 
 | Directory | Description |
-+-----------+-------------+
+|-----------|-------------|
 | range_for_cpp | A macro library that gives C++03 programs a feature very similar to range-based `for` loops |
 | ctor_args     | A tuple-like type for encapsulating constructor arguments |
