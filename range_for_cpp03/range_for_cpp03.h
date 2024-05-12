@@ -16,11 +16,13 @@
 //  standard containers
 //  C-style arrays
 //  const ranges
-//  range-like classes that lack `iterator` types
 //  proxy iterators
 //
 // Limitations:
-//  Range must be an lvalue (but can be const)
+//  The range's `end()` function is called each time through the loop instead
+//    of once at the start.
+//  Range must be an lvalue (but can be const), unless the `copyable_range`
+//    trait is true.
 //  No support for `auto` variables in C++03 (of course)
 //  No support for structured binding loop variables in C++03 (of course)
 //  No support for C++20 lifetime extension of subparts of range expression
