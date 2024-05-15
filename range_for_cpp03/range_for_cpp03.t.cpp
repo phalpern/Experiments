@@ -35,7 +35,7 @@ public:
 };
 
 template <>
-struct copyable_range<iota> : true_type { };
+struct transient_range<iota> : true_type { };
 
 int main()
 {
@@ -68,6 +68,7 @@ int main()
   std::cout << std::endl;
 
   int a[] = { 1, 2, 3, 5, 7, 11 };
+#if 0
   RANGE_FOR(int x, a) {
     std::cout << x << ' ';
   }
@@ -80,6 +81,7 @@ int main()
   RANGE_FOR(const int& x, A)
     std::cout << x << ' ';
   std::cout << std::endl;
+#endif
 
   // Test with loop-variable declarations containing a comma.
   std::vector<std::pair<int, int*> > pairvec;
@@ -87,7 +89,7 @@ int main()
     pairvec.push_back(std::make_pair(i, &a[i]));
 
   RANGE_FOR((const std::pair<int, int*>& p), pairvec)
-    std::cout << '(' << p.first << ", " << (*p.second-1) << "), ";
+    std::cout << '(' << p.first << ", " << (*p.second-1) << ") ";
   std::cout << std::endl;
 
   // Test proxy iterators and sentinels

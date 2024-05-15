@@ -33,9 +33,6 @@ struct true_type  { enum { value = true }; };
 template <bool Cond, class T = void> struct enable_if;
 template <class T> struct enable_if<true, T> { typedef T type; };
 
-template <class>
-struct copyable_range : false_type { };
-
 template <class T> struct Decl;
 
 template <class T>
@@ -53,99 +50,152 @@ template <class T> struct __rm_const<const T> { typedef T type; };
 template <class T> T& __unconst(T& v)       { return v; }
 template <class T> T& __unconst(const T& v) { return const_cast<T&>(v); }
 
-template <class T>
-class _VirtIterBase
+template <std::size_t SZ>
+union _AlignedBuf
 {
-public:
-  virtual T operator*() const = 0;
-  virtual void operator++() const = 0;
-  virtual bool notAtEnd() const = 0;
+  long double m_ldouble;
+  long long   m_ll;
+  void*       m_ptr;
+  void      (*m_fp)();
+  int         _AlignedBuf::*m_mdp;
+  char        data[SZ];
 };
 
-template <class T, class Range>
-class _VirtIter : public _VirtIterBase<T>
+template <class>
+struct transient_range : false_type { };
+
+template <class T, std::size_t begIterSz, std::size_t endIterSz>
+class _RngForIter
 {
-  Range&                           m_range;
-  mutable typename Range::iterator m_current;
+  _AlignedBuf<begIterSz> m_begIter;
+  _AlignedBuf<endIterSz> m_endIter;
+  T                    (*m_deref)(char *begIterData);
+  void                 (*m_increment)(char *begIterData);
+  bool                 (*m_eqIter)(const char *begIterData,
+                                   const char *endIterData);
+
+  template <class Iter>
+  static T deref(char *begIterData);
+
+  template <class Iter>
+  static void increment(char *begIterData);
+
+  template <class begIter, class endIter>
+  static bool eqIter(const char *begIterData, const char *endIterData);
+
+  template <class begIter, class endIter>
+  void init(begIter b, endIter e);
 
 public:
-  _VirtIter(Range& r) : m_range(r), m_current(__unconst(m_range).begin()) { }
+  template <class RngArg>
+  explicit _RngForIter(RngArg& range) { init(range.begin(), range.end()); }
 
-  T operator*() const { return *m_current; }
-  void operator++() const { ++m_current; }
-  bool notAtEnd() const { return m_current != m_range.end(); }
+  template <class RngArg>
+  explicit
+  _RngForIter(const RngArg& range,
+              typename enable_if<transient_range<RngArg>::value, int>::type=0)
+    { init(range.begin(), range.end()); }
+
+  template <class A, std::size_t SZ>
+  explicit _RngForIter(A range[SZ]) { init(&range[0], &range[SZ]); }
+
+  // All member functions are `const` because they are invoked via a
+  // lifetime-extended reference.
+  T operator*() const { return m_deref(__unconst(m_begIter).data); }
+  void operator++() const { m_increment(__unconst(m_begIter).data); }
+  bool notAtEnd() const { return ! m_eqIter(m_begIter.data, m_endIter.data); }
 };
 
-template <class T, class Range>
-class _VirtIter<T, const Range> :
-  public _VirtIter<T, typename __rm_const<Range>::type>
+template <class T, std::size_t begIterSz, std::size_t endIterSz>
+template <class begIter, class endIter>
+inline
+void _RngForIter<T, begIterSz, endIterSz>::init(begIter b, endIter e)
 {
-  typedef typename __rm_const<Range>::type  NonconstRange;
-  typedef _VirtIter<T, NonconstRange> Base;
+  ::new(m_begIter.data) begIter(b);
+  ::new(m_endIter.data) endIter(e);
 
-public:
-  _VirtIter(Range& r) : Base(__unconst(r)) { }
-};
-
-template <class T, class A, std::size_t SZ >
-class _VirtIter<T, A[SZ]> : public _VirtIterBase<T>
-{
-  mutable A *m_current;
-  A         *m_end;
-
-public:
-  _VirtIter(A (&r)[SZ]) : m_current(r), m_end(&r[SZ]) { }
-
-  T operator*() const { return *m_current; }
-  void operator++() const { ++m_current; }
-  bool notAtEnd() const { return m_current != m_end; }
-};
-
-template <class T, class A, std::size_t SZ >
-class _VirtIter<T, const A[SZ]> :
-  public _VirtIter<T, typename __rm_const<A>::type[SZ]>
-{
-  typedef typename __rm_const<A>::type NonconstA;
-  typedef _VirtIter<T, NonconstA[SZ]>  Base;
-
-public:
-  _VirtIter(A (&a)[SZ]) : Base(__unconst(a)) { }
-};
-
-template <class T, class Range>
-class _VirtIterCp : public _VirtIterBase<T>
-{
-  Range                            m_range;
-  mutable typename Range::iterator m_current;
-
-public:
-  _VirtIterCp(const Range& r)
-    : m_range(r), m_current(__unconst(m_range).begin()) { }
-
-  T operator*() const { return *m_current; }
-  void operator++() const { ++m_current; }
-  bool notAtEnd() const { return m_current != m_range.end(); }
-};
-
-template <class T, class Range>
-_VirtIter<T, Range> mkVirt(Range& r)
-{
-  return _VirtIter<T, Range>(__unconst(r));
+  m_deref     = deref<begIter>;
+  m_increment = increment<begIter>;
+  m_eqIter    = eqIter<begIter, endIter>;
 }
 
-template <class T, class Range>
-typename enable_if<copyable_range<Range>::value, _VirtIterCp<T, Range> >::type
-mkVirt(const Range& r)
+template <class T, std::size_t begIterSz, std::size_t endIterSz>
+template <class Iter>
+T _RngForIter<T, begIterSz, endIterSz>::deref(char *begIterData)
 {
-  return _VirtIterCp<T, Range>(r);
+  return **reinterpret_cast<Iter*>(begIterData);
 }
 
-#define RANGE_FOR(RangeDecl, ...)                                            \
-  for (const _VirtIterBase<Decl<void(&)(UNPAREN(RangeDecl))>::type>& _Iter = \
-         mkVirt<Decl<void(&)(UNPAREN(RangeDecl))>::type>(__VA_ARGS__);  \
-       _Iter.notAtEnd(); )                                              \
-    for (bool _Top = true; _Iter.notAtEnd(); ++_Iter, _Top = true)      \
-      for (UNPAREN(RangeDecl) = *_Iter; _Top; _Top = false)
+template <class T, std::size_t begIterSz, std::size_t endIterSz>
+template <class Iter>
+void _RngForIter<T, begIterSz, endIterSz>::increment(char *begIterData)
+{
+  ++*reinterpret_cast<Iter*>(begIterData);
+}
+
+template <class T, std::size_t begIterSz, std::size_t endIterSz>
+template <class begIter, class endIter>
+bool _RngForIter<T, begIterSz, endIterSz>::eqIter(const char *begIterData,
+                                                  const char *endIterData)
+{
+  return (*reinterpret_cast<const begIter*>(begIterData) ==
+          *reinterpret_cast<const endIter*>(endIterData));
+}
+
+template <class T, std::size_t begIterSz, std::size_t endIterSz, class Range>
+_RngForIter<T, begIterSz, endIterSz> mkRngForIter(Range& r)
+{
+  return _RngForIter<T, begIterSz, endIterSz>(r);
+}
+
+template <class T, std::size_t begIterSz, std::size_t endIterSz, class Range>
+typename enable_if<transient_range<Range>::value,
+                   _RngForIter<T, begIterSz, endIterSz> >::type
+mkRngForIter(const Range& r)
+{
+  return _RngForIter<T, begIterSz, endIterSz>(r);
+}
+
+#if 0
+
+template <class Rng>
+class _RngHolder
+{
+protected:
+  Rng m_range;
+  explicit _RngHolder(const Range& r) : m_range(r) { }
+};
+
+template <class T, std::size_t begIterSz, std::size_t, endIterSz, class Range>
+class _RngForIterWithCopy
+  : _RngHolder<Range>, _RngForIter<T, begIterSz, endIterSz>
+{
+public:
+  explicit _RngForIterWithCopy(const Range& r)
+    : _RngHolder<Range>(r)
+    , _RngForIter<T, begIterSz, endIterSz>(this->m_range) { }
+};
+
+template <class>
+struct copyable_range : false_type { };
+
+template <class T, std::size_t begIterSz, std::size_t, endIterSz, class Range>
+typename enable_if<copyable_range<Range>::value,
+                   _RngForIter<T, Range, begIterSz, endIterSz> >::type
+mkRngForIter(const Range& r)
+{
+  return _RngForIter<T, Range, begIterSz, endIterSz>(r);
+}
+
+#endif
+
+#define RANGE_FOR(RangeDecl, ...)                                       \
+  for (_RngForIter<Decl<void(&)(UNPAREN(RangeDecl))>::type,             \
+         sizeof((__VA_ARGS__).begin()),                                 \
+         sizeof((__VA_ARGS__).end())> __iter(__VA_ARGS__);              \
+       __iter.notAtEnd(); )                                             \
+    for (bool _Top = true; __iter.notAtEnd(); ++__iter, _Top = true)    \
+      for (UNPAREN(RangeDecl) = *__iter; _Top; _Top = false)
 
 #endif // ! defined(INCLUDED_RANGE_FOR_CPP03)
 
