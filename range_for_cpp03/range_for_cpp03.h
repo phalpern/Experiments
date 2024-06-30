@@ -19,17 +19,19 @@
 //  proxy iterators
 //
 // Limitations:
-//  The range's `end()` function is called each time through the loop instead
-//    of once at the start.
-//  Range must be an lvalue (but can be const), unless the `copyable_range`
-//    trait is true.
+//  Range must be an lvalue (but can be const), unless the `transient_range`
+//    trait is set (manually) to true.
 //  No support for `auto` variables in C++03 (of course)
 //  No support for structured binding loop variables in C++03 (of course)
 //  No support for C++20 lifetime extension of subparts of range expression
 //  No support for C++23 initialization clause
 
-struct false_type { enum { value = false }; };
-struct true_type  { enum { value = true }; };
+template <class T, T V> struct integral_constant { static const T value = V; };
+template <class T, T V> const T integral_constant<T, V>::value;
+
+struct false_type : integral_constant<bool, false> { };
+struct true_type  : integral_constant<bool, true>  { };
+
 template <bool Cond, class T = void> struct enable_if;
 template <class T> struct enable_if<true, T> { typedef T type; };
 
@@ -71,7 +73,7 @@ class _RngForIter
   _AlignedBuf<endIterSz> m_endIter;
   T                    (*m_deref)(char *begIterData);
   void                 (*m_increment)(char *begIterData);
-  bool                 (*m_eqIter)(const char *begIterData,
+  bool                 (*m_iterEQ)(const char *begIterData,
                                    const char *endIterData);
 
   template <class Iter>
@@ -81,7 +83,7 @@ class _RngForIter
   static void increment(char *begIterData);
 
   template <class begIter, class endIter>
-  static bool eqIter(const char *begIterData, const char *endIterData);
+  static bool iterEQ(const char *begIterData, const char *endIterData);
 
   template <class begIter, class endIter>
   void init(begIter b, endIter e);
@@ -96,14 +98,11 @@ public:
               typename enable_if<transient_range<RngArg>::value, int>::type=0)
     { init(range.begin(), range.end()); }
 
-  template <class A, std::size_t SZ>
-  explicit _RngForIter(A range[SZ]) { init(&range[0], &range[SZ]); }
-
   // All member functions are `const` because they are invoked via a
   // lifetime-extended reference.
   T operator*() const { return m_deref(__unconst(m_begIter).data); }
   void operator++() const { m_increment(__unconst(m_begIter).data); }
-  bool notAtEnd() const { return ! m_eqIter(m_begIter.data, m_endIter.data); }
+  bool notAtEnd() const { return ! m_iterEQ(m_begIter.data, m_endIter.data); }
 };
 
 template <class T, std::size_t begIterSz, std::size_t endIterSz>
@@ -116,7 +115,7 @@ void _RngForIter<T, begIterSz, endIterSz>::init(begIter b, endIter e)
 
   m_deref     = deref<begIter>;
   m_increment = increment<begIter>;
-  m_eqIter    = eqIter<begIter, endIter>;
+  m_iterEQ    = iterEQ<begIter, endIter>;
 }
 
 template <class T, std::size_t begIterSz, std::size_t endIterSz>
@@ -135,7 +134,7 @@ void _RngForIter<T, begIterSz, endIterSz>::increment(char *begIterData)
 
 template <class T, std::size_t begIterSz, std::size_t endIterSz>
 template <class begIter, class endIter>
-bool _RngForIter<T, begIterSz, endIterSz>::eqIter(const char *begIterData,
+bool _RngForIter<T, begIterSz, endIterSz>::iterEQ(const char *begIterData,
                                                   const char *endIterData)
 {
   return (*reinterpret_cast<const begIter*>(begIterData) ==
@@ -156,43 +155,41 @@ mkRngForIter(const Range& r)
   return _RngForIter<T, begIterSz, endIterSz>(r);
 }
 
-#if 0
-
-template <class Rng>
-class _RngHolder
+// Adaptor that makes an array behave like a range, with begin() & end()
+// methods.
+template <class T>
+class ArrayAdaptor
 {
-protected:
-  Rng m_range;
-  explicit _RngHolder(const Range& r) : m_range(r) { }
-};
+  T* m_begin;
+  T* m_end;
 
-template <class T, std::size_t begIterSz, std::size_t, endIterSz, class Range>
-class _RngForIterWithCopy
-  : _RngHolder<Range>, _RngForIter<T, begIterSz, endIterSz>
-{
 public:
-  explicit _RngForIterWithCopy(const Range& r)
-    : _RngHolder<Range>(r)
-    , _RngForIter<T, begIterSz, endIterSz>(this->m_range) { }
+  ArrayAdaptor(T* b, std::size_t sz) : m_begin(b), m_end(b + sz) { }
+
+  T* begin() const { return m_begin; }
+  T* end()   const { return m_end; }
 };
 
-template <class>
-struct copyable_range : false_type { };
+template <class T> struct transient_range<ArrayAdaptor<T> > : true_type { };
 
-template <class T, std::size_t begIterSz, std::size_t, endIterSz, class Range>
-typename enable_if<copyable_range<Range>::value,
-                   _RngForIter<T, Range, begIterSz, endIterSz> >::type
-mkRngForIter(const Range& r)
-{
-  return _RngForIter<T, Range, begIterSz, endIterSz>(r);
-}
+// No-op adaptation of a range.
+template <class R>
+R& adaptRng(R& r) { return r; }
 
-#endif
+// No-op adaptation of a range.  This overload will work with rvalue ranges
+// and `const` ranges.
+template <class R>
+const R& adaptRng(const R& r) { return r; }
+
+// Adapt an array to be a range
+template <class T, std::size_t Sz>
+ArrayAdaptor<T> adaptRng(T (&r)[Sz]) { return ArrayAdaptor<T>(r, Sz); }
 
 #define RANGE_FOR(RangeDecl, ...)                                       \
   for (_RngForIter<Decl<void(&)(UNPAREN(RangeDecl))>::type,             \
-         sizeof((__VA_ARGS__).begin()),                                 \
-         sizeof((__VA_ARGS__).end())> __iter(__VA_ARGS__);              \
+         sizeof(adaptRng(__VA_ARGS__).begin()),                         \
+         sizeof(adaptRng(__VA_ARGS__).end())>                           \
+         __iter(adaptRng(__VA_ARGS__));                                 \
        __iter.notAtEnd(); )                                             \
     for (bool _Top = true; __iter.notAtEnd(); ++__iter, _Top = true)    \
       for (UNPAREN(RangeDecl) = *__iter; _Top; _Top = false)

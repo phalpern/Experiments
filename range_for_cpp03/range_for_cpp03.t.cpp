@@ -68,7 +68,6 @@ int main()
   std::cout << std::endl;
 
   int a[] = { 1, 2, 3, 5, 7, 11 };
-#if 0
   RANGE_FOR(int x, a) {
     std::cout << x << ' ';
   }
@@ -81,7 +80,6 @@ int main()
   RANGE_FOR(const int& x, A)
     std::cout << x << ' ';
   std::cout << std::endl;
-#endif
 
   // Test with loop-variable declarations containing a comma.
   std::vector<std::pair<int, int*> > pairvec;
