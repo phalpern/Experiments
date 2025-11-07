@@ -4,6 +4,8 @@
  * Distributed under the Boost Software License - Version 1.0
  */
 
+////// OLD implementation of `relocate_from`
+
 #ifndef INCLUDE_RELOCATE_CONSTRUCTION
 #define INCLUDE_RELOCATE_CONSTRUCTION
 
