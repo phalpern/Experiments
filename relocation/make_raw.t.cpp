@@ -1,10 +1,10 @@
-/* make_uninitialized.t.cpp                                           -*-C++-*-
+/* make_raw.t.cpp                                           -*-C++-*-
  *
  * Copyright (C) 2024 Pablo Halpern <phalpern@halpernwightsoftware.com>
  * Distributed under the Boost Software License - Version 1.0
  */
 
-#include <make_uninitialized.h>
+#include <make_raw.h>
 #include <iostream>
 #include <new>
 
@@ -87,23 +87,24 @@ int main()
 
   std::cout << "Before int init: " << std::hex << a.m_int << "\n";
 
-  new (&a.m_int) int(xstd::make_uninitialized<int>());
+  a.m_int = 0xdeadbeef;
+  new (&a.m_int) int(xstd::make_raw<int>());
   std::cout << "After int init:  " << std::hex << a.m_int << "\n";
 
   a.m_int = 0xdeadbeef;
-  new (&a.m_w) W(xstd::make_uninitialized<W>());
+  new (&a.m_w) W(xstd::make_raw<W>());
   std::cout << "After W init:    " << std::hex << a.m_w << "\n";
 
   a.m_int = 0xdeadbeef;
-  new (&a.m_x) X(xstd::make_uninitialized<X>());
+  new (&a.m_x) X(xstd::make_raw<X>());
   std::cout << "After X init:    " << std::hex << a.m_x << "\n";
 
   a.m_int = 0xdeadbeef;
-  new (&a.m_y) Y(xstd::make_uninitialized<Y>());
+  new (&a.m_y) Y(xstd::make_raw<Y>());
   std::cout << "After Y init:    " << std::hex << a.m_y << "\n";
 
   a.m_int = 0xdeadbeef;
-  new (&a.m_z) Z(xstd::make_uninitialized<Z>());
+  new (&a.m_z) Z(xstd::make_raw<Z>());
   std::cout << "After Z init:    " << std::hex << a.m_z << "\n";
 }
 
