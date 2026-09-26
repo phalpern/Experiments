@@ -7,105 +7,172 @@
 #include <make_raw.h>
 #include <iostream>
 #include <new>
+#include <cstdlib>
 
-/// Trivially default constructible and trivially copyable
-class W
+namespace {
+
+class TestContext
 {
-  int m_value;
+  const TestContext* m_prevContext;
+  const char*        m_file;
+  int                m_line;
+  const char*        m_str;
+  static const TestContext* s_currContext;
 
 public:
-  friend std::ostream& operator<<(std::ostream& os, const W& obj)
-  {
-    return os << "W(" << std::hex << obj.m_value << ')';
+  static const TestContext* currContext() { return s_currContext; }
+
+  TestContext(const char* file, int line, const char* str)
+    : m_prevContext(s_currContext)
+    , m_file(file), m_line(line), m_str(str)
+    {
+      s_currContext = this;
+    }
+
+  ~TestContext() { s_currContext = m_prevContext; }
+
+  const TestContext* prevContext() const { return m_prevContext; }
+  const char* file() const { return m_file; }
+  unsigned line() const { return m_line; }
+  const char* str() const { return m_str; }
+};
+const TestContext *TestContext::s_currContext = nullptr;
+
+int errorCount = 0;
+
+#define TEST_ASSERT(c) do {                                             \
+    if (! (c)) {                                                        \
+      std::cout << __FILE__ << ':' << __LINE__                          \
+                << ": Assertion failed: " #c << std::endl;              \
+      for (const TestContext* ctx = TestContext::currContext();         \
+           ctx; ctx = ctx->prevContext())                               \
+        std::cout << ctx->file() << ':' << ctx->line()                  \
+                  << ":  Context: " << ctx->str() << std::endl;         \
+      ++errorCount;                                                     \
+    }                                                                   \
+  } while (false)
+
+} // close unnamed namespace
+
+/// Inherit from this struct to turn trivial copyable (if instantiated with
+/// `true`) off (if instnatiated with false).
+template <bool>
+struct TcBase
+{
+};
+
+/// Specialization for `false` parameter -- not trivially copyable.
+template <>
+struct TcBase<false>
+{
+  /// Non-trivial destructor
+  constexpr ~TcBase() { }
+};
+
+enum TrivCopy : bool { };
+enum TrivDfltCtor : bool { };
+
+/// Test class, parameterized on size, trivially copyable, and trivially
+/// default constructible.
+template <std::size_t SZ, TrivCopy TC, TrivDfltCtor TDC>
+struct TestClass : TcBase<bool(TC)>
+{
+  unsigned m_data[SZ];
+};
+
+template <std::size_t SZ, TrivCopy TC>
+struct TestClass<SZ, TC, TrivDfltCtor(false)> : TcBase<bool(TC)>
+{
+  unsigned m_data[SZ];
+
+  constexpr TestClass() {
+    for (std::size_t i = 0; i < SZ; ++i)
+      m_data[i] = 0xcafebeef;
   }
 };
 
-/// Not trivially default constructible but trivially copyable
-class X
+template <std::size_t SZ, TrivCopy TC, TrivDfltCtor TDC>
+void testUninit()
 {
-  int m_value;
+  using Obj = TestClass<SZ, TC, TDC>;
 
-public:
-  explicit X(int v = 0) : m_value(v) { }
-  X(const X& other) = default;
-  ~X() = default;
+  unsigned buffer[SZ];
+  for (std::size_t i = 0; i < SZ; ++i)
+    buffer[i] = 0xdeadbeef;
 
-  friend std::ostream& operator<<(std::ostream& os, const X& obj)
-  {
-    return os << "X(" << std::hex << obj.m_value << ')';
+  auto p = new (buffer) TestClass(xstd::make_raw<Obj>());
+  std::cout << "testUninit<" << SZ << ", "
+            << "TrivCopy(" << (TC ? "true " : "false") << "), "
+            << "TrivDfltCtor(" << (TC ? "true " : "false")
+            << ")> uninit element = 0x" << std::hex << p->m_data[0]
+            << std::endl;
+
+  // Assert that default constructor is never invoked
+  TEST_ASSERT(p->m_data[0]      != 0xcafebeef);
+  TEST_ASSERT(p->m_data[SZ - 1] != 0xcafebeef);
+
+  // When not using the trivial-copy optimization, assert that the buffer is
+  // left unchanged.
+  if constexpr (! bool(TC) || SZ > 16) {
+    TEST_ASSERT(p->m_data[0]      == 0xdeadbeef);
+    TEST_ASSERT(p->m_data[SZ - 1] == 0xdeadbeef);
+  }
+}
+
+struct Initializer
+{
+  template <std::size_t SZ, TrivCopy TC, TrivDfltCtor TDC>
+  void operator()(TestClass<SZ, TC, TDC> *p) {
+    // Must be called on uninitialized storage.
+    TEST_ASSERT(p->m_data[0]      != 0xcafebeef);
+    TEST_ASSERT(p->m_data[SZ - 1] != 0xcafebeef);
+
+    for (std::size_t i = 0; i < SZ; ++i)
+      p->m_data[i] = 0xdecaf101;
   }
 };
 
-/// Trivially default constructible but not trivially copyable
-class Y
+template <std::size_t SZ, TrivCopy TC, TrivDfltCtor TDC>
+void testInit()
 {
-  int m_value;
+  using Obj = TestClass<SZ, TC, TDC>;
 
-public:
-  Y() = default;
-  explicit Y(int v) : m_value(v) { }
-  Y(const Y& other) : m_value(other.m_value) { }
-  ~Y() { std::cout << "~Y() "; }
+  unsigned buffer[SZ];
+  for (std::size_t i = 0; i < SZ; ++i)
+    buffer[i] = 0xdeadbeef;
 
-  friend std::ostream& operator<<(std::ostream& os, const Y& obj)
-  {
-    return os << "Y(" << std::hex << obj.m_value << ')';
-  }
-};
+  auto p = new (buffer) TestClass(xstd::make_raw<Obj>(Initializer{}));
+  std::cout << "testInit<" << SZ << ", "
+            << "TrivCopy(" << (TC ? "true " : "false") << "), "
+            << "TrivDfltCtor(" << (TC ? "true " : "false")
+            << ")> uninit element = 0x" << std::hex << p->m_data[0]
+            << std::endl;
 
-/// Neither trivially default constructible nor trivially copyable
-class Z
-{
-  int m_value;
-
-public:
-  explicit Z(int v = 0) : m_value(v) { }
-  Z(const Z& other) : m_value(other.m_value) { }
-  ~Z() { std::cout << "~Z() "; }
-
-  friend std::ostream& operator<<(std::ostream& os, const Z& obj)
-  {
-    return os << "Z(" << std::hex << obj.m_value << ')';
-  }
-};
-
-union UU
-{
-  int m_int;
-  W   m_w;
-  X   m_x;
-  Y   m_y;
-  Z   m_z;
-
-  UU() : m_int(0xdeadbeef) { }
-  ~UU() { }
-};
+  TEST_ASSERT(p->m_data[0]      == 0xdecaf101);
+  TEST_ASSERT(p->m_data[SZ - 1] == 0xdecaf101);
+}
 
 int main()
 {
-  UU a;
+  testUninit< 1, TrivCopy(false), TrivDfltCtor(false)>();
+  testUninit< 1, TrivCopy(false), TrivDfltCtor(true )>();
+  testUninit< 1, TrivCopy(true ), TrivDfltCtor(false)>();
+  testUninit< 1, TrivCopy(true ), TrivDfltCtor(true )>();
+  testUninit<17, TrivCopy(false), TrivDfltCtor(false)>();
+  testUninit<17, TrivCopy(false), TrivDfltCtor(true )>();
+  testUninit<17, TrivCopy(true ), TrivDfltCtor(false)>();
+  testUninit<17, TrivCopy(true ), TrivDfltCtor(true )>();
 
-  std::cout << "Before int init: " << std::hex << a.m_int << "\n";
+  testInit< 1, TrivCopy(false), TrivDfltCtor(false)>();
+  testInit< 1, TrivCopy(false), TrivDfltCtor(true )>();
+  testInit< 1, TrivCopy(true ), TrivDfltCtor(false)>();
+  testInit< 1, TrivCopy(true ), TrivDfltCtor(true )>();
+  testInit<17, TrivCopy(false), TrivDfltCtor(false)>();
+  testInit<17, TrivCopy(false), TrivDfltCtor(true )>();
+  testInit<17, TrivCopy(true ), TrivDfltCtor(false)>();
+  testInit<17, TrivCopy(true ), TrivDfltCtor(true )>();
 
-  a.m_int = 0xdeadbeef;
-  new (&a.m_int) int(xstd::make_raw<int>());
-  std::cout << "After int init:  " << std::hex << a.m_int << "\n";
-
-  a.m_int = 0xdeadbeef;
-  new (&a.m_w) W(xstd::make_raw<W>());
-  std::cout << "After W init:    " << std::hex << a.m_w << "\n";
-
-  a.m_int = 0xdeadbeef;
-  new (&a.m_x) X(xstd::make_raw<X>());
-  std::cout << "After X init:    " << std::hex << a.m_x << "\n";
-
-  a.m_int = 0xdeadbeef;
-  new (&a.m_y) Y(xstd::make_raw<Y>());
-  std::cout << "After Y init:    " << std::hex << a.m_y << "\n";
-
-  a.m_int = 0xdeadbeef;
-  new (&a.m_z) Z(xstd::make_raw<Z>());
-  std::cout << "After Z init:    " << std::hex << a.m_z << "\n";
+  return errorCount;
 }
 
 // Local Variables:

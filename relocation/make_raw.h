@@ -98,8 +98,8 @@ class shadow_init
   /// a valid object of some other type at the this address.
   template <class F>
   constexpr explicit shadow_init(F&& emplacer)
-    requires (std::is_invocable_v<F&&, void*>)
-    { std::forward<F>(emplacer)(this); }
+    requires (std::is_invocable_v<F&&, T*>)
+    { std::forward<F>(emplacer)(&m_tu.m_t); }
 
 public:
   /// Returns a default-constructed object. This factory-function version of
@@ -112,8 +112,8 @@ public:
   /// taken and cast to a different factory type.
   template <class F>
   constexpr static shadow_init emplace_factory(F&& emplacer)
-    requires (std::is_invocable_v<F&&, void*>)
-    { return { std::forward<F>(emplacer) }; }
+    requires (std::is_invocable_v<F&&, T*>)
+    { return shadow_init{std::forward<F>(emplacer)}; }
 };
 
 }  // close namespace `xstd::internal`
@@ -186,8 +186,8 @@ inline T make_raw(F&& emplacer)
   // that it is calling a function returning `T`, when it is in fact calling a
   // function returning a shadow object.
   // ASSUMPTION: types `T (F&&)` and `shadow (F&&)` have the same ABI.
-  auto& factory =
-    reinterpret_cast<T (&)(F&&)>(shadow::template emplace_factory<F>);
+  auto& shadow_factory = shadow::template emplace_factory<F>;
+  auto& factory = reinterpret_cast<T (&)(F&&)>(shadow_factory);
 
   // Invoke the spoofed factory function and return the resulting `T`
   // object. Materialization rules will prevent temporaries from getting
