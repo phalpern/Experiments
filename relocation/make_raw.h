@@ -23,7 +23,7 @@ using namespace std;
 
 namespace internal {
 
-/// The largest size for objects were the specialized `make_raw` operations
+/// The largest size for objects where the specialized `make_raw` operations
 /// yield optimization benefits. In generic code, trivial initialization
 /// results in an unnecessary zero-initialization and returning a trivially
 /// copyable object results in unnecessary byte copies into a register (or
